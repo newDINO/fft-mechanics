@@ -1,0 +1,8 @@
+[workspace]
+resolver = "3"
+members = ["crates/exe"]
+
+
+[profile.dev]
+opt-level = 1
+debug = false
