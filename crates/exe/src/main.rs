@@ -3,20 +3,26 @@ use rustfft::{Fft, FftPlanner};
 
 use std::sync::Arc;
 
+const W: usize = 32;
+const H: usize = 32;
+
 fn main() {
     let (e1, e2) = (1.0, 2.0);
     let nu = 0.3;
+    let is_plain_stress = true;
 
-    let lame_coefficient0 = get_lame(e1, nu);
-    let shear_modulus0 = get_shear_modulus(e1, nu);
+    let lame1 = get_lame(e1, nu, is_plain_stress);
+    let lame2 = get_lame(e2, nu, is_plain_stress);
+    let mu1 = get_shear_modulus(e1, nu);
+    let mu2 = get_shear_modulus(e2, nu);
 
     let freqs = get_freqs();
 
-    let greens = init_greens(lame_coefficient0, shear_modulus0, &freqs);
+    let greens = init_greens(lame1, mu1, &freqs);
 
-    let c = init_c_from_image(e1, e2, nu, nu);
+    let c = init_c_from_image(lame1, lame2, mu1, mu2);
 
-    let strain_0 = [[0.05, 0.0], [0.0, 0.0]];
+    let strain_0 = [[1.0, 0.5], [0.5, 0.0]];
     let (stress, strain) = init_stress_strain(strain_0, &c);
     let (mut stress, mut strain) = (tensor22_to_complex(stress), tensor22_to_complex(strain));
 
@@ -31,6 +37,8 @@ fn main() {
 
     let mut step = || {
         tensor22_fft_assign(&mut stress_fft, &stress, &mut fft_scratch, &fft);
+
+        println!("Error: {}", convergence_error(&stress_fft, &freqs));
 
         for_in_2222(|i, j, k, h| {
             for_in_field(|x, y| {
@@ -53,16 +61,13 @@ fn main() {
     });
 }
 
-fn get_lame(young: f64, poisson: f64) -> f64 {
-    young * poisson / ((1.0 + poisson) * (1.0 - 2.0 * poisson))
+fn get_lame(young: f64, poisson: f64, is_plain_stress: bool) -> f64 {
+    young * poisson / ((1.0 + poisson) * (1.0 - (2.0 - is_plain_stress as u8 as f64) * poisson))
 }
 
 fn get_shear_modulus(young: f64, poisson: f64) -> f64 {
     young / (2.0 * (1.0 + poisson))
 }
-
-const W: usize = 128;
-const H: usize = 128;
 
 struct Field2d<T> {
     data: Box<[[T; H]; W]>,
@@ -166,11 +171,7 @@ impl Field2d<f64> {
                     pixel[2] -= b as f32 * 0.5;
                 }
             } else {
-                let c = if min > 0.0 {
-                    value - min
-                } else {
-                    max - value
-                } * inv_range;
+                let c = if min > 0.0 { value - min } else { max - value } * inv_range;
                 pixel[0] -= c as f32;
                 pixel[1] -= c as f32;
                 pixel[2] -= c as f32;
@@ -245,7 +246,7 @@ impl<T: Default + Clone + num_traits::Zero + Copy> Field2d<T> {
     }
 }
 
-impl <T: Copy + Default> Field2d<Complex<T>> {
+impl<T: Copy + Default> Field2d<Complex<T>> {
     fn real(&self) -> Field2d<T> {
         let mut result: Field2d<T> = Default::default();
         for_in_field(|i, j| {
@@ -395,7 +396,7 @@ fn init_greens(lame: f64, shear_modulus: f64, freq: &[Field2d<f64>; 2]) -> Tenso
     result
 }
 
-fn init_c_from_image(e1: f64, e2: f64, nu1: f64, nu2: f64) -> Tensor2222<f64> {
+fn init_c_from_image(lame1: f64, lame2: f64, mu1: f64, mu2: f64) -> Tensor2222<f64> {
     use image::ImageReader;
     let img = ImageReader::open("images/mat.png")
         .unwrap()
@@ -406,10 +407,8 @@ fn init_c_from_image(e1: f64, e2: f64, nu1: f64, nu2: f64) -> Tensor2222<f64> {
     let mut c = Tensor2222::<f64>::default();
     for_in_field(|x, y| {
         let is_base = img.get_pixel(x as u32, y as u32).0[0] == 255;
-        let e = if is_base { e1 } else { e2 };
-        let nu = if is_base { nu1 } else { nu2 };
-        let lame = get_lame(e, nu);
-        let shear_modulus = get_shear_modulus(e, nu);
+        let lame = if is_base { lame1 } else { lame2 };
+        let shear_modulus = if is_base { mu1 } else { mu2 };
         for_in_22(|a, b| {
             c[a][a][b][b].add_assign(x, y, lame);
             c[a][b][a][b].add_assign(x, y, shear_modulus);
@@ -429,7 +428,10 @@ fn init_c_from_image(e1: f64, e2: f64, nu1: f64, nu2: f64) -> Tensor2222<f64> {
 //     c
 // }
 
-fn tensor_mul_assign<R: Clone + std::ops::Mul<T, Output = T>, T: std::ops::AddAssign + Clone + num_traits::ConstZero>(
+fn tensor_mul_assign<
+    R: Clone + std::ops::Mul<T, Output = T>,
+    T: std::ops::AddAssign + Clone + num_traits::ConstZero,
+>(
     lhs: &mut Tensor22<T>,
     rhs: &Tensor22<T>,
     m: &Tensor2222<R>,
@@ -451,4 +453,29 @@ fn init_stress_strain(
     let mut stress = Tensor22::<f64>::default();
     tensor_mul_assign(&mut stress, &strain, c);
     (stress, strain)
+}
+
+fn convergence_error(stress_fft: &Tensor22<Complex64>, freq: &[Field2d<f64>; 2]) -> f64 {
+    let mut result = 0.0;
+    for_in_field(|x, y| {
+        let mut vector = [Complex64::ZERO; 2];
+        for_in_22(|i, j| {
+            vector[j] += freq[i].data[x][y] * stress_fft[i][j].data[x][y];
+        });
+        result += vector[0].norm_sqr() + vector[1].norm_sqr();
+    });
+    result /= (W * H) as f64;
+    result = result.sqrt();
+
+    let denominator = {
+        let mut vector = [Complex64::ZERO; 2];
+        for_in_22(|i, j| {
+            vector[j] += freq[i].data[0][0] * stress_fft[i][j].data[0][0];
+        });
+        (vector[0].norm_sqr() + vector[1].norm_sqr()).sqrt()
+    };
+    println!("{}", denominator);
+
+    // result / denominator
+    result
 }
