@@ -22,7 +22,7 @@ fn main() {
 
     let c = init_c_from_image(lame1, lame2, mu1, mu2);
 
-    let strain_0 = [[1.0, 0.5], [0.5, 0.0]];
+    let strain_0 = [[1.0, 0.0], [0.0, 0.0]];
     let (stress, strain) = init_stress_strain(strain_0, &c);
     let (mut stress, mut strain) = (tensor22_to_complex(stress), tensor22_to_complex(strain));
 
@@ -470,12 +470,10 @@ fn convergence_error(stress_fft: &Tensor22<Complex64>, freq: &[Field2d<f64>; 2])
     let denominator = {
         let mut vector = [Complex64::ZERO; 2];
         for_in_22(|i, j| {
-            vector[j] += freq[i].data[0][0] * stress_fft[i][j].data[0][0];
+            vector[j] += stress_fft[i][j].data[0][0];
         });
         (vector[0].norm_sqr() + vector[1].norm_sqr()).sqrt()
     };
-    println!("{}", denominator);
 
-    // result / denominator
-    result
+    result / denominator
 }
