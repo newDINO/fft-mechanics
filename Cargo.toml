@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/exe", "crates/solver"]
+members = ["crates/exe", "crates/solver", "crates/umat"]
 
 
 [profile.dev]
