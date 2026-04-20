@@ -211,3 +211,6 @@ dependencies = [
 [[package]]
 name = "umat"
 version = "0.1.0"
+dependencies = [
+ "solver",
+]

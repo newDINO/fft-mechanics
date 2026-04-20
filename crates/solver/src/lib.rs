@@ -1,4 +1,4 @@
-use rustfft::num_complex::{Complex, Complex64};
+use rustfft::num_complex::Complex64;
 use rustfft::{Fft, FftPlanner};
 
 use std::sync::Arc;
@@ -6,7 +6,23 @@ use std::sync::Arc;
 const W: usize = 32;
 const H: usize = 32;
 
-pub struct Solver {}
+pub struct Solver {
+    fft: Arc<dyn Fft<f64>>,
+    ifft: Arc<dyn Fft<f64>>,
+    fft_scratch: [Complex64; W],
+    freqs: [Field2d<f64>; 2],
+    
+    greens: Tensor2222<f64>,
+    c: Tensor2222<f64>,
+    ddsdde: [[f64; 3]; 3],
+    
+    strain0: [[f64; 2]; 2],
+    
+    stress: Tensor22<Complex64>,
+    strain: Tensor22<Complex64>,
+    stress_fft: Tensor22<Complex64>,
+    strain_fft: Tensor22<Complex64>,
+}
 
 impl Solver {
     pub fn new() -> Self {
@@ -23,11 +39,97 @@ impl Solver {
 
         let greens = init_greens(lame1, mu1, &freqs);
 
-        let c = init_c_from_image(lame1, lame2, mu1, mu2);
+        use image::ImageReader;
+        let img = ImageReader::open("C:\\Users\\LL_uvz\\Desktop\\project\\fft-mechanics/data/mat.png")
+            .unwrap()
+            .decode()
+            .unwrap()
+            .into_luma8();
+        let c = init_c_from_image(lame1, lame2, mu1, mu2, &img);
+        let ddsdde = init_ddsdde_from_image(lame1, lame2, mu1, mu2, &img);
 
-        Self {}
+        let mut planner = FftPlanner::<f64>::new();
+        let fft = planner.plan_fft_forward(W);
+        let ifft = planner.plan_fft_inverse(W);
+        let fft_scratch = [Complex64::default(); W];
+    
+        Self {
+            fft,
+            ifft,
+            fft_scratch,
+            freqs,
+
+            greens,
+            c,
+            ddsdde,
+            
+            strain0: Default::default(),
+
+            stress: Default::default(),
+            strain: Default::default(),
+            stress_fft: Default::default(),
+            strain_fft: Default::default(),
+        }
     }
-    pub fn step(&mut self) {}
+    pub fn init(&mut self, strain: &[f64; 3]) {
+        self.strain0[0][0] = strain[0];
+        self.strain0[1][1] = strain[1];
+        self.strain0[0][1] = strain[2];
+        self.strain0[1][0] = strain[2];
+        for_in_22(|i, j| {
+            for_in_field(|x, y| self.strain[i][j].set(x, y, self.strain0[i][j].into()))
+        });
+        tensor_mul_assign(&mut self.stress, &self.strain, &self.c);
+
+        tensor22_fft_assign(
+            &mut self.strain_fft,
+            &self.strain,
+            &mut self.fft_scratch,
+            &self.fft,
+        );
+    }
+    pub fn step(&mut self) {
+        tensor22_fft_assign(
+            &mut self.stress_fft,
+            &self.stress,
+            &mut self.fft_scratch,
+            &self.fft,
+        );
+
+        for_in_2222(|i, j, k, h| {
+            for_in_field(|x, y| {
+                let value = self.greens[i][j][k][h].get(x, y) * self.stress_fft[k][h].get(x, y);
+                self.strain_fft[i][j].sub_assign(x, y, value);
+            });
+            self.strain_fft[i][j].set(0, 0, (self.strain0[i][j] * (W * H) as f64).into());
+        });
+
+        tensor22_ifft_assign(
+            &mut self.strain,
+            &self.strain_fft,
+            &mut self.fft_scratch,
+            &self.ifft,
+        );
+        tensor_mul_assign(&mut self.stress, &self.strain, &self.c);
+    }
+    pub fn set_ddsdde(&self, ddsdde: &mut [[f64; 3]; 3]) {
+        ddsdde.copy_from_slice(&self.ddsdde);
+    }
+    pub fn set_average_stress(&self, stress: &mut [f64; 3]) {
+        const INV_N: f64 = 1.0 / (W * H) as f64;
+        for_in_field(|x, y| {
+            stress[0] += self.stress[0][0].get(x, y).re;
+            stress[1] += self.stress[1][1].get(x, y).re;
+            stress[2] += self.stress[0][1].get(x, y).re;
+        });
+        stress.iter_mut().for_each(|v| *v *= INV_N);
+    }
+    pub fn stress(&self) -> &Tensor22<Complex64> {
+        &self.stress
+    }
+    pub fn error(&self) -> f64 {
+        convergence_error(&self.stress_fft, &self.freqs)
+    }
 }
 
 fn get_lame(young: f64, poisson: f64, is_plain_stress: bool) -> f64 {
@@ -38,8 +140,8 @@ fn get_shear_modulus(young: f64, poisson: f64) -> f64 {
     young / (2.0 * (1.0 + poisson))
 }
 
-struct Field2d<T> {
-    data: Box<[[T; H]; W]>,
+pub struct Field2d<T> {
+    pub data: Box<[[T; H]; W]>,
 }
 
 impl<T: Default + Copy> Default for Field2d<T> {
@@ -50,24 +152,8 @@ impl<T: Default + Copy> Default for Field2d<T> {
     }
 }
 
-type Tensor2222<T> = [[[[Field2d<T>; 2]; 2]; 2]; 2];
-type Tensor22<T> = [[Field2d<T>; 2]; 2];
-
-fn tensor22_to_complex<T: Default + Clone + num_traits::Zero + Copy>(
-    t: Tensor22<T>,
-) -> Tensor22<Complex<T>> {
-    [
-        [t[0][0].to_complex(), t[0][1].to_complex()],
-        [t[1][0].to_complex(), t[1][1].to_complex()],
-    ]
-}
-
-fn tensor22_to_real<T: Copy + Default>(t: &Tensor22<Complex<T>>) -> Tensor22<T> {
-    [
-        [t[0][0].real(), t[0][1].real()],
-        [t[1][0].real(), t[1][1].real()],
-    ]
-}
+pub type Tensor2222<T> = [[[[Field2d<T>; 2]; 2]; 2]; 2];
+pub type Tensor22<T> = [[Field2d<T>; 2]; 2];
 
 fn tensor22_fft_assign(
     this: &mut Tensor22<Complex64>,
@@ -110,7 +196,7 @@ impl<T: Clone> Field2d<T> {
     }
 }
 impl Field2d<f64> {
-    fn save_img(&self, path: &str) {
+    pub fn save_img(&self, path: &str) {
         let mut min = self.get(0, 0);
         let mut max = min;
         for_in_field(|i, j| {
@@ -193,33 +279,6 @@ impl<T: Default + Copy> Field2d<T> {
         for_in_field(|i, j| {
             let value = f(i, j);
             result.set(i, j, value);
-        });
-        result
-    }
-}
-
-impl<T: Default + Clone + num_traits::Zero + Copy> Field2d<T> {
-    fn to_complex(&self) -> Field2d<Complex<T>> {
-        let mut result: Field2d<Complex<T>> = Default::default();
-        for_in_field(|i, j| {
-            result.set(
-                i,
-                j,
-                Complex {
-                    re: self.get(i, j),
-                    im: T::zero(),
-                },
-            );
-        });
-        result
-    }
-}
-
-impl<T: Copy + Default> Field2d<Complex<T>> {
-    fn real(&self) -> Field2d<T> {
-        let mut result: Field2d<T> = Default::default();
-        for_in_field(|i, j| {
-            result.set(i, j, self.get(i, j).re);
         });
         result
     }
@@ -365,14 +424,7 @@ fn init_greens(lame: f64, shear_modulus: f64, freq: &[Field2d<f64>; 2]) -> Tenso
     result
 }
 
-fn init_c_from_image(lame1: f64, lame2: f64, mu1: f64, mu2: f64) -> Tensor2222<f64> {
-    use image::ImageReader;
-    let img = ImageReader::open("data/mat.png")
-        .unwrap()
-        .decode()
-        .unwrap()
-        .into_luma8();
-
+fn init_c_from_image(lame1: f64, lame2: f64, mu1: f64, mu2: f64, img: &image::GrayImage) -> Tensor2222<f64> {
     let mut c = Tensor2222::<f64>::default();
     for_in_field(|x, y| {
         let is_base = img.get_pixel(x as u32, y as u32).0[0] == 255;
@@ -385,6 +437,28 @@ fn init_c_from_image(lame1: f64, lame2: f64, mu1: f64, mu2: f64) -> Tensor2222<f
         });
     });
     c
+}
+
+fn init_ddsdde_from_image(lame1: f64, lame2: f64, mu1: f64, mu2: f64, img: &image::GrayImage) -> [[f64; 3]; 3] {
+    let mut lame = 0.0;
+    let mut mu = 0.0;
+    for_in_field(|x, y| {
+        let is_base = img.get_pixel(x as u32, y as u32).0[0] == 255;
+        lame += if is_base { lame1 } else { lame2 };
+        mu += if is_base { mu1 } else { mu2 };
+    });
+    let n = (W * H) as f64;
+    lame /= n;
+    mu /= n;
+
+    let mut result: [[f64; 3]; 3] = Default::default();
+    let a = 2.0 * mu + lame;
+    result[0][0] = a;
+    result[1][1] = a;
+    result[2][2] = mu;
+    result[0][1] = lame;
+    result[1][0] = lame;
+    result
 }
 
 // fn stiffness_c(lame: f64, shear_modulus: f64) -> Tensor2222<f64> {
@@ -411,17 +485,6 @@ fn tensor_mul_assign<
             lhs[i][j].add_assign(x, y, m[i][j][k][h].get(x, y) * rhs[k][h].get(x, y));
         })
     });
-}
-
-fn init_stress_strain(
-    average_strain: [[f64; 2]; 2],
-    c: &Tensor2222<f64>,
-) -> (Tensor22<f64>, Tensor22<f64>) {
-    let mut strain = Tensor22::<f64>::default();
-    for_in_22(|i, j| for_in_field(|x, y| strain[i][j].set(x, y, average_strain[i][j])));
-    let mut stress = Tensor22::<f64>::default();
-    tensor_mul_assign(&mut stress, &strain, c);
-    (stress, strain)
 }
 
 fn convergence_error(stress_fft: &Tensor22<Complex64>, freq: &[Field2d<f64>; 2]) -> f64 {
