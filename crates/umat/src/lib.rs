@@ -6,7 +6,7 @@ use std::cell::RefCell;
 const NTENS: usize = 3;
 
 thread_local! {
-    static RUNNER: RefCell<Solver> = RefCell::new(Solver::new());
+    static RUNNER: RefCell<Solver> = RefCell::new(Solver::new("C:\\Users\\LL_uvz\\Desktop\\project\\fft-mechanics/data/mat.png"));
     static STEPS: RefCell<u32> = Default::default();
 }
 

@@ -51,9 +51,8 @@ dependencies = [
 name = "exe"
 version = "0.1.0"
 dependencies = [
- "image",
- "num-traits",
- "rustfft",
+ "num-complex",
+ "solver",
 ]
 
 [[package]]

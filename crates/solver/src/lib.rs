@@ -3,21 +3,21 @@ use rustfft::{Fft, FftPlanner};
 
 use std::sync::Arc;
 
-const W: usize = 32;
-const H: usize = 32;
+pub const W: usize = 32;
+pub const H: usize = 32;
 
 pub struct Solver {
     fft: Arc<dyn Fft<f64>>,
     ifft: Arc<dyn Fft<f64>>,
     fft_scratch: [Complex64; W],
     freqs: [Field2d<f64>; 2],
-    
+
     greens: Tensor2222<f64>,
     c: Tensor2222<f64>,
     ddsdde: [[f64; 3]; 3],
-    
+
     strain0: [[f64; 2]; 2],
-    
+
     stress: Tensor22<Complex64>,
     strain: Tensor22<Complex64>,
     stress_fft: Tensor22<Complex64>,
@@ -25,7 +25,7 @@ pub struct Solver {
 }
 
 impl Solver {
-    pub fn new() -> Self {
+    pub fn new(mat_img_path: &str) -> Self {
         let (e1, e2) = (2.0, 2.0);
         let nu = 0.3;
         let is_plain_stress = true;
@@ -40,7 +40,7 @@ impl Solver {
         let greens = init_greens(lame1, mu1, &freqs);
 
         use image::ImageReader;
-        let img = ImageReader::open("C:\\Users\\LL_uvz\\Desktop\\project\\fft-mechanics/data/mat.png")
+        let img = ImageReader::open(mat_img_path)
             .unwrap()
             .decode()
             .unwrap()
@@ -52,7 +52,7 @@ impl Solver {
         let fft = planner.plan_fft_forward(W);
         let ifft = planner.plan_fft_inverse(W);
         let fft_scratch = [Complex64::default(); W];
-    
+
         Self {
             fft,
             ifft,
@@ -62,7 +62,7 @@ impl Solver {
             greens,
             c,
             ddsdde,
-            
+
             strain0: Default::default(),
 
             stress: Default::default(),
@@ -424,7 +424,13 @@ fn init_greens(lame: f64, shear_modulus: f64, freq: &[Field2d<f64>; 2]) -> Tenso
     result
 }
 
-fn init_c_from_image(lame1: f64, lame2: f64, mu1: f64, mu2: f64, img: &image::GrayImage) -> Tensor2222<f64> {
+fn init_c_from_image(
+    lame1: f64,
+    lame2: f64,
+    mu1: f64,
+    mu2: f64,
+    img: &image::GrayImage,
+) -> Tensor2222<f64> {
     let mut c = Tensor2222::<f64>::default();
     for_in_field(|x, y| {
         let is_base = img.get_pixel(x as u32, y as u32).0[0] == 255;
@@ -439,7 +445,13 @@ fn init_c_from_image(lame1: f64, lame2: f64, mu1: f64, mu2: f64, img: &image::Gr
     c
 }
 
-fn init_ddsdde_from_image(lame1: f64, lame2: f64, mu1: f64, mu2: f64, img: &image::GrayImage) -> [[f64; 3]; 3] {
+fn init_ddsdde_from_image(
+    lame1: f64,
+    lame2: f64,
+    mu1: f64,
+    mu2: f64,
+    img: &image::GrayImage,
+) -> [[f64; 3]; 3] {
     let mut lame = 0.0;
     let mut mu = 0.0;
     for_in_field(|x, y| {
