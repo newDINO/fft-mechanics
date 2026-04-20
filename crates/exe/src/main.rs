@@ -7,7 +7,7 @@ const W: usize = 32;
 const H: usize = 32;
 
 fn main() {
-    let (e1, e2) = (1.0, 2.0);
+    let (e1, e2) = (2.0, 2.0);
     let nu = 0.3;
     let is_plain_stress = true;
 
@@ -22,7 +22,7 @@ fn main() {
 
     let c = init_c_from_image(lame1, lame2, mu1, mu2);
 
-    let strain_0 = [[1.0, 0.0], [0.0, 0.0]];
+    let strain_0 = [[0.2, 0.05], [0.05, 0.0]];
     let (stress, strain) = init_stress_strain(strain_0, &c);
     let (mut stress, mut strain) = (tensor22_to_complex(stress), tensor22_to_complex(strain));
 
@@ -57,8 +57,10 @@ fn main() {
     }
     let stress = tensor22_to_real(&stress);
     for_in_22(|i, j| {
-        stress[i][j].save_img(&format!("images/{i}{j}.png"));
+        stress[i][j].save_img(&format!("data/{i}{j}.png"));
+        print!("{}, ", stress[i][j].get(0, 0));
     });
+    println!();
 }
 
 fn get_lame(young: f64, poisson: f64, is_plain_stress: bool) -> f64 {
@@ -398,7 +400,7 @@ fn init_greens(lame: f64, shear_modulus: f64, freq: &[Field2d<f64>; 2]) -> Tenso
 
 fn init_c_from_image(lame1: f64, lame2: f64, mu1: f64, mu2: f64) -> Tensor2222<f64> {
     use image::ImageReader;
-    let img = ImageReader::open("images/mat.png")
+    let img = ImageReader::open("data/mat.png")
         .unwrap()
         .decode()
         .unwrap()
