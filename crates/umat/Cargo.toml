@@ -8,3 +8,5 @@ crate-type = ["staticlib"]
 
 [dependencies]
 solver = { path = "../solver" }
+
+bytemuck.workspace = true

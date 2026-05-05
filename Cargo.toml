@@ -6,3 +6,6 @@ members = ["crates/exe", "crates/solver", "crates/umat"]
 [profile.dev]
 opt-level = 1
 debug = false
+
+[workspace.dependencies]
+bytemuck = "1"

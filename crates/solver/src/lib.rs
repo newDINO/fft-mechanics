@@ -1,9 +1,11 @@
 use rustfft::num_complex::Complex64;
 use rustfft::{Fft, FftPlanner};
 
+pub use rustfft::num_complex;
+
 use std::sync::Arc;
 
-pub mod new;
+// pub mod new;
 // pub mod test;
 
 pub const W: usize = 32;
@@ -29,7 +31,7 @@ pub struct Solver {
 
 impl Solver {
     pub fn new(mat_img_path: &str) -> Self {
-        let (e1, e2) = (1.0, 2.0);
+        let (e1, e2) = (1e6, 2e6);
         let nu = 0.3;
         let is_plain_stress = true;
 
