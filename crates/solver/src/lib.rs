@@ -3,6 +3,9 @@ use rustfft::{Fft, FftPlanner};
 
 use std::sync::Arc;
 
+pub mod new;
+// pub mod test;
+
 pub const W: usize = 32;
 pub const H: usize = 32;
 
@@ -26,7 +29,7 @@ pub struct Solver {
 
 impl Solver {
     pub fn new(mat_img_path: &str) -> Self {
-        let (e1, e2) = (2.0, 2.0);
+        let (e1, e2) = (1.0, 2.0);
         let nu = 0.3;
         let is_plain_stress = true;
 
@@ -150,6 +153,14 @@ impl<T: Default + Copy> Default for Field2d<T> {
             data: Box::new([[T::default(); H]; W]),
         }
     }
+}
+
+pub fn field_to_real(f: &Field2d<Complex64>) -> Field2d<f64> {
+    let mut result = Field2d::default();
+    for_in_field(|x, y| {
+        result.set(x, y, f.get(x, y).re);
+    });
+    result
 }
 
 pub type Tensor2222<T> = [[[[Field2d<T>; 2]; 2]; 2]; 2];
