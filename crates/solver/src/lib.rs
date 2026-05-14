@@ -8,8 +8,8 @@ use std::sync::Arc;
 // pub mod new;
 // pub mod test;
 
-pub const W: usize = 32;
-pub const H: usize = 32;
+pub const W: usize = 128;
+pub const H: usize = 128;
 
 pub struct Solver {
     fft: Arc<dyn Fft<f64>>,

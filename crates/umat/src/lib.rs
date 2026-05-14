@@ -34,7 +34,7 @@ pub extern "C" fn run(
     ];
     RUNNER.with_borrow_mut(|runner| {
         runner.init(&strain);
-        for _ in 0..1 {
+        for _ in 0..3 {
             runner.step();
         }
         runner.set_ddsdde(ddsdde);
@@ -42,7 +42,7 @@ pub extern "C" fn run(
         if noel == 1 && npt == 1 {
             println!("{}", runner.error());
         }
-        if step == 4 && noel == 11 {
+        if step == 5 && noel == 1 {
             let stress = runner.stress();
             const PATH: &str = "C:\\Users\\LL_uvz\\Desktop\\project\\fft-mechanics";
             save_field_as_real(&format!("{}/data/output/pt{}s11", PATH, npt), &stress[0][0]);
