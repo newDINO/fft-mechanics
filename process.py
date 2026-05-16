@@ -4,9 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-w = 2
-h = 2
-d = 2
+w = 8
+h = 8
+d = 1
 
 datadir = "data/output"
 imagedir = "data/images"

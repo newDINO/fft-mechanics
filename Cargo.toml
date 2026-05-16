@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/exe", "crates/solver", "crates/umat"]
+members = ["crates/exe", "crates/solver", "crates/umat", "crates/voxelizer"]
 
 
 [profile.dev]
@@ -9,3 +9,4 @@ debug = false
 
 [workspace.dependencies]
 bytemuck = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }

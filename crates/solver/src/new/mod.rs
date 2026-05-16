@@ -55,7 +55,7 @@ impl Solver {
         let (e1, e2) = (1.0, 2.0);
         let nu = 0.3;
         #[cfg(feature = "d2")]
-        let is_plain_stress = true;
+        let is_plain_stress = false;
         #[cfg(feature = "d3")]
         let is_plain_stress = false;
 
@@ -75,8 +75,8 @@ impl Solver {
                 .decode()
                 .unwrap()
                 .into_luma8();
-            // let c = init_c_from_image(lame1, lame2, mu1, mu2, &img);
-            let c = init_ordinary_c(lame1, mu1);
+            let c = init_c_from_image(lame1, lame2, mu1, mu2, &img);
+            // let c = init_ordinary_c(lame1, mu1);
             let ddsdde = init_ddsdde_from_image(lame1, lame2, mu1, mu2, &img);
             (c, ddsdde)
         };
@@ -145,7 +145,7 @@ impl Solver {
             let scale = (W * H) as f64;
             #[cfg(feature = "d3")]
             let scale = (W * H * D) as f64;
-            self.strain_fft[i][j].set([0, 0, 0], (self.strain0[i][j] * scale).into());
+            self.strain_fft[i][j].set([0; DIM], (self.strain0[i][j] * scale).into());
         });
 
         for_in_t2(|i, j| {
@@ -213,32 +213,32 @@ fn init_c_from_image(
     c
 }
 
-fn init_ordinary_c(lame: f64, mu: f64) -> Tensor4<f64> {
-    // let mut c1 = Tensor4::<f64>::default();
-    // for_in_t4(|i, j, k, h| {
-    //     for_in_field(|index| {
-    //         if i == j && k == h {
-    //             c1[i][j][k][h].set(index, lame);
-    //         }
-    //         if i == k && j == h {
-    //             c1[i][j][k][h].add_assign(index, mu);
-    //         }
-    //         if i == h && j == k {
-    //             c1[i][j][k][h].add_assign(index, mu);
-    //         }
-    //     });
-    // });
-    let mut c = Tensor4::<f64>::default();
-    for_in_t2(|a, b| {
-        for_in_field(|index| {
-            c[a][a][b][b].add_assign(index, lame);
-            c[a][b][a][b].add_assign(index, mu);
-            c[a][b][b][a].add_assign(index, mu);
-        });
-    });
-    // println!("eq? {}", c1 == c);
-    c
-}
+// fn init_ordinary_c(lame: f64, mu: f64) -> Tensor4<f64> {
+//     // let mut c1 = Tensor4::<f64>::default();
+//     // for_in_t4(|i, j, k, h| {
+//     //     for_in_field(|index| {
+//     //         if i == j && k == h {
+//     //             c1[i][j][k][h].set(index, lame);
+//     //         }
+//     //         if i == k && j == h {
+//     //             c1[i][j][k][h].add_assign(index, mu);
+//     //         }
+//     //         if i == h && j == k {
+//     //             c1[i][j][k][h].add_assign(index, mu);
+//     //         }
+//     //     });
+//     // });
+//     let mut c = Tensor4::<f64>::default();
+//     for_in_t2(|a, b| {
+//         for_in_field(|index| {
+//             c[a][a][b][b].add_assign(index, lame);
+//             c[a][b][a][b].add_assign(index, mu);
+//             c[a][b][b][a].add_assign(index, mu);
+//         });
+//     });
+//     // println!("eq? {}", c1 == c);
+//     c
+// }
 
 fn init_ddsdde_from_image(
     lame1: f64,
@@ -283,7 +283,7 @@ fn convergence_error(stress_fft: &Tensor2<Complex64>, freq: &[Field<f64>; DIM]) 
     let denominator = {
         let mut vector = [Complex64::ZERO; 2];
         for_in_t2(|i, j| {
-            vector[j] += stress_fft[i][j].get([0, 0, 0]);
+            vector[j] += stress_fft[i][j].get([0; DIM]);
         });
         (vector[0].norm_sqr() + vector[1].norm_sqr()).sqrt()
     };

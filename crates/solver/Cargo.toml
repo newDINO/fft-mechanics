@@ -5,10 +5,10 @@ edition = "2024"
 
 [dependencies]
 rustfft = { version = "6.4" }
-image = { version = "0.25", default-features = false, features = ["png"] }
 num-traits = "0.2"
 
 bytemuck.workspace = true
+image.workspace = true
 
 [features]
 d3 = []

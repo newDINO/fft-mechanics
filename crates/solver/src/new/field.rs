@@ -5,10 +5,10 @@ use rustfft::{
     num_complex::{Complex, Complex64},
 };
 
-pub const W: usize = 2;
-pub const H: usize = 2;
+pub const W: usize = 8;
+pub const H: usize = 8;
 #[cfg(feature = "d3")]
-pub const D: usize = 2;
+pub const D: usize = 1;
 
 #[cfg(feature = "d2")]
 pub const DIM: usize = 2;
