@@ -1,15 +1,18 @@
-use rustfft::num_complex::Complex64;
 use rustfft::Fft;
+use rustfft::num_complex::Complex64;
 
 pub use rustfft::num_complex;
 
 use std::sync::Arc;
 
-// pub mod new;
+// pub mod new_new;
+pub mod new;
 // pub mod test;
 
-pub const W: usize = 128;
-pub const H: usize = 128;
+pub const W: usize = 8;
+pub const H: usize = 8;
+
+// pub static TEST_FIELD: std::sync::OnceLock<&'static [u8]> = std::sync::OnceLock::new();
 
 pub struct Solver {
     fft: Arc<dyn Fft<f64>>,
@@ -54,7 +57,7 @@ impl Solver {
         let ddsdde = init_ddsdde_from_image(lame1, lame2, mu1, mu2, &img);
 
         // let mut planner = rustfft::FftPlannerScalar::<f64>::new();
-        let mut planner = rustfft::FftPlannerSse::<f64>::new().unwrap();
+        let mut planner = rustfft::FftPlanner::<f64>::new();
         let fft = planner.plan_fft_forward(W);
         let ifft = planner.plan_fft_inverse(W);
         let fft_scratch = [Complex64::default(); W];
@@ -144,10 +147,7 @@ impl Solver {
             stress[2] += self.stress[0][1].get(x, y).re;
         });
         stress.iter_mut().for_each(|v| *v *= INV_N);
-        [
-            [stress[0], stress[2]],
-            [stress[2], stress[1]],
-        ]
+        [[stress[0], stress[2]], [stress[2], stress[1]]]
     }
     pub fn set_average_stress(&self, stress: &mut [f64; 3]) {
         const INV_N: f64 = 1.0 / (W * H) as f64;

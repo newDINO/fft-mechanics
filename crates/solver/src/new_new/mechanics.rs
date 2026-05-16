@@ -1,4 +1,4 @@
-use crate::new::field::{DIM, Field, Tensor4, for_in_field, for_in_t4};
+use super::field::{Field, Tensor4, for_in_field, for_in_t4};
 
 pub fn get_lame(young: f64, poisson: f64, is_plain_stress: bool) -> f64 {
     young * poisson / ((1.0 + poisson) * (1.0 - (2.0 - is_plain_stress as u8 as f64) * poisson))
@@ -8,7 +8,7 @@ pub fn get_shear_modulus(young: f64, poisson: f64) -> f64 {
     young / (2.0 * (1.0 + poisson))
 }
 
-pub fn init_greens(lame: f64, shear_modulus: f64, freqs: &[Field<f64>; DIM]) -> Tensor4<f64> {
+pub fn init_greens(lame: f64, shear_modulus: f64, freqs: &[Field<f64>; 2]) -> Tensor4<f64> {
     let freq2 = Field::<f64>::new_with(|index| {
         let x = freqs[0].get(index);
         let y = freqs[1].get(index);
@@ -43,25 +43,25 @@ pub fn init_greens(lame: f64, shear_modulus: f64, freqs: &[Field<f64>; DIM]) -> 
         if k == i {
             for_in_field(|index| {
                 let value = k1.get(index) * freqs[h].get(index) * freqs[j].get(index);
-                scalar.add_assign(index, value);
+                *scalar.get_mut(index) += value;
             });
         }
         if h == i {
             for_in_field(|index| {
                 let value = k1.get(index) * freqs[k].get(index) * freqs[j].get(index);
-                scalar.add_assign(index, value);
+                *scalar.get_mut(index) += value;
             });
         }
         if k == j {
             for_in_field(|index| {
                 let value = k1.get(index) * freqs[h].get(index) * freqs[i].get(index);
-                scalar.add_assign(index, value);
+                *scalar.get_mut(index) += value;
             });
         }
         if h == j {
             for_in_field(|index| {
                 let value = k1.get(index) * freqs[k].get(index) * freqs[i].get(index);
-                scalar.add_assign(index, value);
+                *scalar.get_mut(index) += value;
             });
         }
     });

@@ -4,7 +4,7 @@ use rustfft::{Fft, FftPlanner, num_complex::Complex64};
 
 mod field;
 use field::*;
-pub use field::{Field, H, W, field_to_real};
+pub use field::{Field, H, W, field_to_real, for_in_t2};
 
 mod mechanics;
 use mechanics::*;
@@ -19,18 +19,12 @@ const INV_N: f64 = 1.0 / (W * H) as f64;
 #[cfg(feature = "d3")]
 const INV_N: f64 = 1.0 / (W * H * D) as f64;
 
-pub fn test() {
-    let freqs = field::get_freqs();
-    println!("{:?}", freqs[0].data);
-    println!("{:?}", freqs[1].data);
-}
-
 pub struct Solver {
     ffts: [Arc<dyn Fft<f64>>; DIM],
     iffts: [Arc<dyn Fft<f64>>; DIM],
     fft_scratch: [Complex64; W],
 
-    freqs: [Field<f64>; 2],
+    freqs: [Field<f64>; DIM],
 
     greens: Tensor4<f64>,
     c: Tensor4<f64>,
@@ -60,7 +54,10 @@ impl Solver {
 
         let (e1, e2) = (1.0, 2.0);
         let nu = 0.3;
+        #[cfg(feature = "d2")]
         let is_plain_stress = true;
+        #[cfg(feature = "d3")]
+        let is_plain_stress = false;
 
         let lame1 = get_lame(e1, nu, is_plain_stress);
         let lame2 = get_lame(e2, nu, is_plain_stress);
@@ -71,7 +68,6 @@ impl Solver {
 
         let greens = init_greens(lame1, mu1, &freqs);
 
-        #[cfg(feature = "d2")]
         let (c, ddsdde) = {
             use image::ImageReader;
             let img = ImageReader::open(mat_img_path)
@@ -79,7 +75,8 @@ impl Solver {
                 .decode()
                 .unwrap()
                 .into_luma8();
-            let c = init_c_from_image(lame1, lame2, mu1, mu2, &img);
+            // let c = init_c_from_image(lame1, lame2, mu1, mu2, &img);
+            let c = init_ordinary_c(lame1, mu1);
             let ddsdde = init_ddsdde_from_image(lame1, lame2, mu1, mu2, &img);
             (c, ddsdde)
         };
@@ -144,7 +141,11 @@ impl Solver {
                 let value = self.greens[i][j][k][h].get(index) * self.stress_fft[k][h].get(index);
                 self.strain_fft[i][j].sub_assign(index, value);
             });
-            self.strain_fft[i][j].set([0, 0], (self.strain0[i][j] * (W * H) as f64).into());
+            #[cfg(feature = "d2")]
+            let scale = (W * H) as f64;
+            #[cfg(feature = "d3")]
+            let scale = (W * H * D) as f64;
+            self.strain_fft[i][j].set([0, 0, 0], (self.strain0[i][j] * scale).into());
         });
 
         for_in_t2(|i, j| {
@@ -159,7 +160,7 @@ impl Solver {
     pub fn set_ddsdde(&self, ddsdde: &mut [[f64; NTENS]; NTENS]) {
         ddsdde.copy_from_slice(&self.ddsdde);
     }
-    pub fn set_average_stress(&self, stress: &mut [f64; 3]) {
+    pub fn set_average_stress(&self, stress: &mut [f64; NTENS]) {
         #[cfg(feature = "d2")]
         for_in_field(|index| {
             stress[0] += self.stress[0][0].get(index).re;
@@ -181,12 +182,14 @@ impl Solver {
     pub fn stress(&self) -> &Tensor2<Complex64> {
         &self.stress
     }
+    pub fn strain(&self) -> &Tensor2<Complex64> {
+        &self.strain
+    }
     pub fn error(&self) -> f64 {
         convergence_error(&self.stress_fft, &self.freqs)
     }
 }
 
-#[cfg(feature = "d2")]
 fn init_c_from_image(
     lame1: f64,
     lame2: f64,
@@ -198,7 +201,7 @@ fn init_c_from_image(
     for_in_field(|index| {
         use crate::new::field::for_in_t2;
 
-        let is_base = img.get_pixel(index[0] as u32, index[0] as u32).0[0] == 255;
+        let is_base = img.get_pixel(index[0] as u32, index[1] as u32).0[0] == 255;
         let lame = if is_base { lame1 } else { lame2 };
         let shear_modulus = if is_base { mu1 } else { mu2 };
         for_in_t2(|a, b| {
@@ -210,7 +213,33 @@ fn init_c_from_image(
     c
 }
 
-#[cfg(feature = "d2")]
+fn init_ordinary_c(lame: f64, mu: f64) -> Tensor4<f64> {
+    // let mut c1 = Tensor4::<f64>::default();
+    // for_in_t4(|i, j, k, h| {
+    //     for_in_field(|index| {
+    //         if i == j && k == h {
+    //             c1[i][j][k][h].set(index, lame);
+    //         }
+    //         if i == k && j == h {
+    //             c1[i][j][k][h].add_assign(index, mu);
+    //         }
+    //         if i == h && j == k {
+    //             c1[i][j][k][h].add_assign(index, mu);
+    //         }
+    //     });
+    // });
+    let mut c = Tensor4::<f64>::default();
+    for_in_t2(|a, b| {
+        for_in_field(|index| {
+            c[a][a][b][b].add_assign(index, lame);
+            c[a][b][a][b].add_assign(index, mu);
+            c[a][b][b][a].add_assign(index, mu);
+        });
+    });
+    // println!("eq? {}", c1 == c);
+    c
+}
+
 fn init_ddsdde_from_image(
     lame1: f64,
     lame2: f64,
@@ -239,7 +268,7 @@ fn init_ddsdde_from_image(
     result
 }
 
-fn convergence_error(stress_fft: &Tensor2<Complex64>, freq: &[Field<f64>; 2]) -> f64 {
+fn convergence_error(stress_fft: &Tensor2<Complex64>, freq: &[Field<f64>; DIM]) -> f64 {
     let mut result = 0.0;
     for_in_field(|index| {
         let mut vector = [Complex64::ZERO; 2];
@@ -254,7 +283,7 @@ fn convergence_error(stress_fft: &Tensor2<Complex64>, freq: &[Field<f64>; 2]) ->
     let denominator = {
         let mut vector = [Complex64::ZERO; 2];
         for_in_t2(|i, j| {
-            vector[j] += stress_fft[i][j].get([0, 0]);
+            vector[j] += stress_fft[i][j].get([0, 0, 0]);
         });
         (vector[0].norm_sqr() + vector[1].norm_sqr()).sqrt()
     };

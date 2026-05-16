@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 solver = { path = "../solver" }
 num-complex = "0.4"
+
+bytemuck.workspace = true

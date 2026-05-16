@@ -5,8 +5,8 @@ use rustfft::{
     num_complex::{Complex, Complex64},
 };
 
-pub const W: usize = 32;
-pub const H: usize = 32;
+pub const W: usize = 2;
+pub const H: usize = 2;
 #[cfg(feature = "d3")]
 pub const D: usize = 2;
 
@@ -31,7 +31,7 @@ pub fn field_to_real<T: Copy + Default>(f: &Field<Complex<T>>) -> Field<T> {
 
 // Accessing: z, y, x
 // index = z * W * H + y * W + x
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Field<T> {
     #[cfg(feature = "d2")]
     pub data: Box<[T; W * H]>,
@@ -91,49 +91,6 @@ impl<T: std::ops::SubAssign> Field<T> {
     pub fn sub_assign(&mut self, index: [usize; DIM], value: T) {
         let index = flat_index(index);
         self.data[index] -= value;
-    }
-}
-impl Field<f64> {
-    pub fn save_img(&self, path: &str) {
-        let mut min = self.get([0, 0]);
-        let mut max = min;
-        for_in_field(|index| {
-            min = min.min(self.get(index));
-            max = max.max(self.get(index));
-        });
-        let middle = (min + max) * 0.5;
-        let inv_half = 1.0 / (middle - min);
-        let diff = min * max < 0.0;
-        let inv_range = 1.0 / (max - min);
-
-        let mut image = image::Rgb32FImage::new(W as u32, H as u32);
-
-        for_in_field(|index| {
-            let value = self.get(index);
-            let pixel = &mut image.get_pixel_mut(index[0] as u32, index[0] as u32).0;
-            *pixel = [1.0, 1.0, 1.0];
-            if diff {
-                if value < middle {
-                    let r = (middle - value) * inv_half;
-                    pixel[0] -= r as f32 * 0.5;
-                    pixel[1] -= r as f32;
-                    pixel[2] -= r as f32;
-                } else {
-                    let b = (value - middle) * inv_half;
-                    pixel[0] -= b as f32;
-                    pixel[1] -= b as f32;
-                    pixel[2] -= b as f32 * 0.5;
-                }
-            } else {
-                let c = if min > 0.0 { value - min } else { max - value } * inv_range;
-                pixel[0] -= c as f32;
-                pixel[1] -= c as f32;
-                pixel[2] -= c as f32;
-            }
-        });
-
-        let image = image::DynamicImage::ImageRgb32F(image).into_rgb8();
-        image.save(path).unwrap();
     }
 }
 
