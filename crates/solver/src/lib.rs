@@ -1,5 +1,5 @@
 use rustfft::num_complex::Complex64;
-use rustfft::{Fft, FftPlanner};
+use rustfft::Fft;
 
 pub use rustfft::num_complex;
 
@@ -32,13 +32,13 @@ pub struct Solver {
 impl Solver {
     pub fn new(mat_img_path: &str) -> Self {
         let (e1, e2) = (1e6, 2e6);
-        let nu = 0.3;
+        let (nu1, nu2) = (0.3, 0.3);
         let is_plain_stress = true;
 
-        let lame1 = get_lame(e1, nu, is_plain_stress);
-        let lame2 = get_lame(e2, nu, is_plain_stress);
-        let mu1 = get_shear_modulus(e1, nu);
-        let mu2 = get_shear_modulus(e2, nu);
+        let lame1 = get_lame(e1, nu1, is_plain_stress);
+        let lame2 = get_lame(e2, nu2, is_plain_stress);
+        let mu1 = get_shear_modulus(e1, nu1);
+        let mu2 = get_shear_modulus(e2, nu2);
 
         let freqs = get_freqs();
 
@@ -53,7 +53,8 @@ impl Solver {
         let c = init_c_from_image(lame1, lame2, mu1, mu2, &img);
         let ddsdde = init_ddsdde_from_image(lame1, lame2, mu1, mu2, &img);
 
-        let mut planner = FftPlanner::<f64>::new();
+        // let mut planner = rustfft::FftPlannerScalar::<f64>::new();
+        let mut planner = rustfft::FftPlannerSse::<f64>::new().unwrap();
         let fft = planner.plan_fft_forward(W);
         let ifft = planner.plan_fft_inverse(W);
         let fft_scratch = [Complex64::default(); W];
@@ -76,11 +77,25 @@ impl Solver {
             strain_fft: Default::default(),
         }
     }
-    pub fn init(&mut self, strain: &[f64; 3]) {
+    pub fn init_with_v3(&mut self, strain: &[f64; 3]) {
         self.strain0[0][0] = strain[0];
         self.strain0[1][1] = strain[1];
         self.strain0[0][1] = strain[2];
         self.strain0[1][0] = strain[2];
+        for_in_22(|i, j| {
+            for_in_field(|x, y| self.strain[i][j].set(x, y, self.strain0[i][j].into()))
+        });
+        tensor_mul_assign(&mut self.stress, &self.strain, &self.c);
+
+        tensor22_fft_assign(
+            &mut self.strain_fft,
+            &self.strain,
+            &mut self.fft_scratch,
+            &self.fft,
+        );
+    }
+    pub fn init(&mut self, strain: [[f64; 2]; 2]) {
+        self.strain0 = strain;
         for_in_22(|i, j| {
             for_in_field(|x, y| self.strain[i][j].set(x, y, self.strain0[i][j].into()))
         });
@@ -119,6 +134,20 @@ impl Solver {
     }
     pub fn set_ddsdde(&self, ddsdde: &mut [[f64; 3]; 3]) {
         ddsdde.copy_from_slice(&self.ddsdde);
+    }
+    pub fn get_average_stress(&self) -> [[f64; 2]; 2] {
+        let mut stress: [f64; 3] = [0.0; 3];
+        const INV_N: f64 = 1.0 / (W * H) as f64;
+        for_in_field(|x, y| {
+            stress[0] += self.stress[0][0].get(x, y).re;
+            stress[1] += self.stress[1][1].get(x, y).re;
+            stress[2] += self.stress[0][1].get(x, y).re;
+        });
+        stress.iter_mut().for_each(|v| *v *= INV_N);
+        [
+            [stress[0], stress[2]],
+            [stress[2], stress[1]],
+        ]
     }
     pub fn set_average_stress(&self, stress: &mut [f64; 3]) {
         const INV_N: f64 = 1.0 / (W * H) as f64;

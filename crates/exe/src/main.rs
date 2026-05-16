@@ -38,7 +38,7 @@ fn save_complex_img(f: &Field<Complex64>, path: &str) {
 
 fn test() {
     let mut solver = solver::Solver::new("data/mat.png");
-    solver.init(&[0.2, 0.0, 0.0]);
+    solver.init_with_v3(&[0.2, 0.0, 0.0]);
     for _ in 0..10 {
         solver.step();
         // let error = solver.error();
